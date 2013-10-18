@@ -1,0 +1,653 @@
+
+<html>
+        <head>
+                <title>Brian Mykietka's Homepage</title>
+                <link rel="stylesheet" href="brians.css" type="text/css">
+        </head>
+        <body>
+                <div id="header">Brian Mykietka</div>
+                <div id="nav">
+                        <ul>
+                                <li id="navLI"><a style="color: #CCCCCC;" href="/">Home</a></li>
+                                <li id="navLI"><a style="color: #CCCCCC;" href="projects.php">Projects</a></li>
+                        </ul>
+                </div>
+                <div id="content">
+			<div id="leftcontainer">
+			<div id="contentbox">
+				<div id="contentboxtop">
+					<span style="font-weight: bold">Final "Take Home" Project</span>
+				</div>
+				<div id="contentboxcontent">
+					
+	<h3>Project Description</h3>
+	
+	Our final project consists of using CUDA and matrix transposition operations on the GPU in order to learn how to make more efficient use of the
+	GPU memory and data management.  There is a very good paper written by Greg Ruetsch and Paulius Micikevicius on this topic found 
+	<a href='http://developer.download.nvidia.com/compute/cuda/3_0/sdk/website/CUDA/website/C/src/transposeNew/doc/MatrixTranspose.pdf'>here</a>.
+	<p>
+	The paper discusses the following topics in regards to memory usage:
+	<ul>
+		<li>Coalescing data transfer to and from global memory</li>
+		<li>Shared memory bank conflicts</li>
+		<li>Partition camping</li>
+	</ul>
+	<p>
+	Since the performance of CUDA applications can largely depend upon your hardware it is important to understand what some of your current graphics card
+	limitations are.  You can grab the information for your particular video card after you've installed CUDA and running ./deviceQuery which is found in 
+	the /Developer/GPU Computing/C/bin/darwin/release/ (if you happen to be using OS X) directory. Here are some of the features of my GeForce 9400M listed 
+	below:
+	<p>
+	Machine Information:
+	<ul>
+		<li>MacBook Pro</li>
+		<li>OS: Mac OS X - 10.6.3</li>
+		<li>RAM: 4GB</li>
+		<li>Processor: Intel Core 2 Duo P8700 @ 2.53GHz</li>
+	</ul>
+	<p>
+	Device Query:
+	<p>
+	<table>
+		<tr><td>Device 0:</td><td> "GeForce 9400M"</td></tr>
+		<tr><td>CUDA Driver Version:</td><td>3.0</td></tr>
+		<tr><td>CUDA Runtime Version:</td><td>3.0</td></tr>
+		<tr><td>CUDA Capability Major revision number:</td><td>1</td></tr>
+		<tr><td>CUDA Capability Minor revision number:</td><td>1</td></tr>
+		<tr><td>Total amount of global memory:</td><td>266010624 bytes</td></tr>
+		<tr><td>Number of multiprocessors:</td><td>2</td></tr>
+		<tr><td>Number of cores:</td><td>16</td></tr>
+		<tr><td>Total amount of constant memory:</td><td>65536 bytes</td></tr>
+		<tr><td>Total amount of shared memory per block:</td><td>16384 bytes</td></tr>
+		<tr><td>Total number of registers available per block: </td><td>8192</td></tr>
+		<tr><td>Warp size:</td><td>32</td></tr>
+		<tr><td>Maximum number of threads per block:</td><td>512</td></tr>
+		<tr><td>Maximum sizes of each dimension of a block:</td><td>512 x 512 x 64</td></tr>
+		<tr><td>Maximum sizes of each dimension of a grid:</td><td>65535 x 65535 x 1</td></tr>
+		<tr><td>Maximum memory pitch:</td><td>2147483647 bytes</td></tr>
+		<tr><td>Texture alignment:</td><td>256 bytes</td></tr>
+		<tr><td>Clock rate:</td><td>1.10 GHz</td></tr>
+		<tr><td>Concurrent copy and execution:</td><td>No</td></tr>
+		<tr><td>Run time limit on kernels:</td><td>Yes</td></tr>
+		<tr><td>Integrated:</td><td>Yes</td></tr>
+		<tr><td>Support host page-locked memory mapping:</td><td>Yes</td></tr>
+		<tr><td>Compute mode:</td><td>Default (multiple host threads can use this device simultaneously)</td></tr>
+		<tr><td colspan='2'>deviceQuery, CUDA Driver = CUDART, CUDA Driver Version = 55683, CUDA Runtime Version = 3.0, NumDevs = 1, Device = GeForce 9400M</td></tr>
+	</table>
+	<p>
+	<h3>Overview</h3>
+	<p>
+	The matrices in this paper are represented by the 1D arrays odata and idata.  First off, copies are performed in order to set an "ideal" situation that 
+	we would like attain when we attempt our transpose.  The paper lists a simple copy in which the contents of array idata are copied into the odata array in a simple kernel.
+	<p>
+	We will be using three metrics in order to test the performance:
+	<ol>
+		<li>The execution time of the kernel for both the kernel launched from inside a loop in the host code (inner), as well as where the transpose is completed inside the kernel itself (outer)
+		<li>The bandwidth measured in GB/s</li>
+		<li>The read back time, the time it takes to read back the newly generated transposed matrix</li>
+	</ol>
+	For simplicities sake, I will be performing all tests with the following configuration (although there are many different configurations available if you download my project below):
+	<p>
+	<a name='config'>
+	<table>
+  		<tr><td>Matrix Rows (size_x): </td><td>2048</td></tr>
+  		<tr><td>Matrix Cols (size_y): </td><td>2048</td></tr>
+  		<tr><td>Block Rows: </td><td>8</td></tr>
+  		<tr><td>Tile Dim: </td><td>32</td></tr>
+  		<tr><td>Number of Iterations: </td><td>100</td></tr>
+  	</table>
+  	<p>
+  	This was run with the follow command: <p><span id='code'>./final -matrows=2048 -matcols=2048 -tiledim=32 -iter=100 -blockrows=8</span>
+  	<p>
+	
+	<h3>Naive Transpose</h3>
+	The first code we will look at is the naive transpose.  It is very similar to the simple copy found below.  
+	What we want is for the naive transpose benchmark numbers to come close to those of the simple copy (the "ideal"
+	case ).  It can be seen that really the only real difference between these two kernels is in the way that the 
+	arrays are indexed (notice lines 6-13 for the naive transpose compared with lines 6-12 for the simple copy).
+	<p>
+	Naive Transpose:
+	<div id='code'>
+			<pre><ol><li>__global__ void transposeNaive(float* odata, float* idata, int width, int height, int nreps, const int blockRows)
+</li><li>{
+</li><li>	int xIndex = blockIdx.x * TILE_DIM + threadIdx.x;
+</li><li>	int yIndex = blockIdx.y * TILE_DIM + threadIdx.y;
+</li><li>	
+</li><li>	int index_in = xIndex + width * yIndex;
+</li><li>	int index_out = yIndex + height * xIndex;
+</li><li>	for (int r = 0; r < nreps; r++) 
+</li><li>	{
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) 
+</li><li>		{
+</li><li>			odata[index_out + i] = idata[ index_in + i * width];
+</li><li>		}
+</li><li>	}
+</li><li>}</li></ol></pre>
+	</div>
+	<p>
+	Simple Copy:
+	<div id='code'>
+			<pre><ol><li>__global__ void copy( float* odata, float* idata, int width, int height, int nreps, const int blockRows )
+</li><li>{
+</li><li>	int xIndex = blockIdx.x * TILE_DIM + threadIdx.x;
+</li><li>	int yIndex = blockIdx.y * TILE_DIM + threadIdx.y;
+</li><li>	
+</li><li>	int index = xIndex + width * yIndex;
+</li><li>	for (int r = 0; r < nreps; r++) 
+</li><li>	{
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) 
+</li><li>		{
+</li><li>			odata[ index + i * width] = idata[ index + i * width];
+</li><li>		}
+</li><li>	}
+</li><li>}</li></ol></pre>
+	</div>
+	<p>
+	When we run the script for these two kernels we see the following results (please recall what configuration values
+	we are using by <a href='#config'>clicking here</a>):
+	<p>
+	<table> 
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>4.116 ms</td><td> 4.219 ms</td><td> 25.886 ms</td><td> 29.074 ms</td><td>  7.59 GB/s</td><td>  7.41 GB/s</td></tr>
+		<tr><td>  Naive Transpose: </td><td>37.532 ms</td><td> 35.556 ms</td><td> 27.122 ms</td><td> 28.410 ms</td><td>  0.83 GB/s</td><td>  0.88 GB/s</td></tr>
+	</table>
+	<p>
+	Quite a large gap can be seen in the "Loop over/in kernel" time and bandwidth between the Simple Copy and the Naive Transpose.  Our goal is to 
+	increase the performance of the transpose by optimizing the transpose code to where the resulting values approach
+	the resulting copy values.
+	<p>
+	<h3>Coalesced Transpose</h3>
+	<p>
+	Now, we begin our optimizations to the transpose code! The way that memory is accessed can have a large affect on performance.
+	For this optimization we will be paying close attention to how global memory accesses
+	are being performed ( loading data from idata and storing the resulting data into odata ).  What we want is for global memory accesses by a half-warp
+	of threads to be coalesced into a one or two transactions, if this can be accomplished the the hardware will be able to speed up this process.  
+	This way that memory can be coalesced depends on the GPU device that the computation is being done on.
+	<p>
+	The paper lists a number of conditions that need to be met in order for coalescing to take place (for compute capabilities of 1.0 and 1.1):
+	<ul>
+		<li>"threads must access either 32-, 64-, or 128-bit words, resulting in either one transaction (for 32- and 64-bit words) or two transactions ( for 128-bit words )"</li>
+		<li>"All 16 words must lie in the same aligned segment of 64 or 128 bytes for 32- and 64-bit words, and for 128-bit words the data must lie in two contiguous 128 byte aligned segments"</li>
+		<li>"The threads need to access words in sequence. If the k-th thread is to access a word, it must access the k-th word, although not all threads need to participate."</li>
+	</ul>
+	If your card has compute capabilities of 1.2 then coalescing requirements are relaxed.  See the paper for more details on what conditions
+	coalescing does or does not take place.
+	<p>
+	Coalescing takes place in the simple and naive transpose based off of the i-loops iteration and how each half warp reads in 16 contiguous 32-bit words (half a row of tiles).
+	Using cudaMalloc() and setting the tileDim forces the alignment with a segment of memory, coalescing the memory.  The difference is when 
+	writing to odata, the simple copy is essentially mimicing the way the data was pulled from idata ( a half warp writing a row of a tile ).
+	With the naive transpose, a half warp only writes one half of a column of the floats that are in the matrix to different segments of memory, this causes the storage to be 
+	in an uncoalesced state.
+	<p>
+	So, in order to keep data from being uncoalesced we use shared memory to write half warps to noncontiguous locations of odata.  With shared memory, 
+	no performance penalties exist for noncontiguous access patterns as they do in global memory.  The procedure listed above requires that each element
+	in a particular tile be accessed by different threads, which we will see is a problem in the next section.  We can use the handy __syncthreads() call to 
+	make sure all reads into shared memory from idata have finished before writes start taking place to odata.
+
+	<p>
+	Coalesced Transpose:
+	<p>
+	<div id='code'>
+			<pre><ol><li>__global__ void transposeCoalesced(float* odata, float* idata, int width, int height, int nreps, const int blockRows)
+</li><li>{
+</li><li>	__shared__ float tile[TILE_DIM][TILE_DIM];
+</li><li>	
+</li><li>	int xIndex = blockIdx.x * TILE_DIM + threadIdx.x;
+</li><li>	int yIndex = blockIdx.y * TILE_DIM + threadIdx.y;
+</li><li>	int index_in = xIndex + ( yIndex ) * width;
+</li><li>	
+</li><li>	xIndex = blockIdx.y * TILE_DIM + threadIdx.x;
+</li><li>	yIndex = blockIdx.x * TILE_DIM + threadIdx.y;
+</li><li>	int index_out = xIndex + ( yIndex ) * height;
+</li><li>	
+</li><li>	for (int r = 0; r < nreps; r++) 
+</li><li>	{
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) 
+</li><li>		{
+</li><li>			tile[ threadIdx.y + i ][ threadIdx.x ] =
+</li><li>			idata[ index_in + i * width];
+</li><li>		}
+</li><li>		
+</li><li>		__syncthreads();
+</li><li>		
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) 
+</li><li>		{
+</li><li>			odata[ index_out + i * height ] =
+</li><li>			tile[ threadIdx.x ][ threadIdx.y + i ];
+</li><li>		}
+</li><li>	}
+</li><li>}</li></ol></pre>
+	</div>
+	<p>
+	This code will use a middle ground of shared memory to temporarily store the values before they are put into odata.
+	<p>
+	<table> 
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>4.116 ms</td><td> 4.219 ms</td><td> 25.886 ms</td><td> 29.074 ms</td><td>  7.59 GB/s</td><td>  7.41 GB/s</td></tr>
+		<tr><td>  Naive Transpose: </td><td>37.532 ms</td><td> 35.556 ms</td><td> 27.122 ms</td><td> 28.410 ms</td><td>  0.83 GB/s</td><td>  0.88 GB/s</td></tr>
+		<tr><td>  Coalesced Transpose: </td><td>12.735 ms</td><td> 8.766 ms</td><td> 26.085 ms</td><td> 26.751 ms</td><td>  2.45 GB/s</td><td>  3.56 GB/s</td></tr>
+	</table>
+	<p>
+	A significant improvement can be seen in the results using coalesced memory over the results of the simple copy.  The is a slight difference between
+	iterating in the host code versus iterating in the kernel itself ( columns "Loop over/in kernel" under the bandwidth section ).  It also takes much less time
+	to for the loops to execute ( columns "Loop over/in kernel" under the time section ).
+	<p>
+	Since we are using shared memory in order to do this transpose, lets take a look at the code and what the results would be of doing a copy with shared memory, just for reference:
+	<p>
+	Shared Memory Copy:
+	<div id='code'>
+			<pre><ol><li>__global__ void copySharedMem(float *odata, float *idata, int width, int height, int nreps, const int blockRows)
+</li><li>{
+</li><li>	__shared__ float tile[TILE_DIM][TILE_DIM];
+</li><li>	
+</li><li>	int xIndex = blockIdx.x*TILE_DIM + threadIdx.x; 
+</li><li>	int yIndex = blockIdx.y*TILE_DIM + threadIdx.y;
+</li><li>	int index = xIndex + width*yIndex; 
+</li><li>	
+</li><li>	for ( int r = 0; r < nreps; r++ ) 
+</li><li>	{
+</li><li>		for (int i=0; i<TILE_DIM; i+=blockRows) 
+</li><li>		{ 
+</li><li>			tile[threadIdx.y+i][threadIdx.x] = idata[index+i*width];
+</li><li>		}
+</li><li>		
+</li><li>		__syncthreads();
+</li><li>		
+</li><li>		for (int i=0; i<TILE_DIM; i+=blockRows) 
+</li><li>		{ 
+</li><li>			odata[index+i*width] = tile[threadIdx.y+i][threadIdx.x];
+</li><li>		}
+</li><li>
+</li><li>	}
+</li><li>}</li></ol></pre>
+	</div>
+	<p>
+	Results:
+	<p>
+	<table>
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>4.116 ms</td><td> 4.219 ms</td><td> 25.886 ms</td><td> 29.074 ms</td><td>  7.59 GB/s</td><td>  7.41 GB/s</td></tr>
+		<tr><td>  Shared Memory Copy: </td><td>5.971 ms</td><td> 4.256 ms</td><td> 25.355 ms</td><td> 26.433 ms</td><td>  5.23 GB/s</td><td>  7.34 GB/s</td></tr>
+		<tr><td>  Naive Transpose: </td><td>37.532 ms</td><td> 35.556 ms</td><td> 27.122 ms</td><td> 28.410 ms</td><td>  0.83 GB/s</td><td>  0.88 GB/s</td></tr>
+		<tr><td>  Coalesced Transpose: </td><td>12.735 ms</td><td> 8.766 ms</td><td> 26.085 ms</td><td> 26.751 ms</td><td>  2.45 GB/s</td><td>  3.56 GB/s</td></tr>
+	</table>
+	<p>
+	__syncthreads() is not required in this code, we are just keeping it in for consistency to compare the results with the coalesced transpose.  Here we can see that
+	the time to loop over/in the kernel is still way less than the coalesced transpose and that the bandwidth approaches what was to be expected with the simple copy.
+	Although we do see an improvement in regards to the coalesced transpose using shared memory, there is another thing we have to worry about in comparing 
+	the coalesced transpose to the shared memory copy kernel, we will talk about shared memory bank conflicts in the next section.
+	
+	<h3>Shared memory bank conflicts</h3>
+	Banks are shared memory modules that are divided into 16 equaly-sized locations.  The banks are organized successively in 32-bit words which are assigned to 
+	successive banks.  We want to avoid threads from accessing the same bank simultaneously in order to maximize the performance.  By accessing numerous banks 
+	simultaneously we will be increasing the usage from shared memory by a lot!  We can do this by padding the shared memory array by 1 column:
+	<p>
+	<div id='code'>__shared__ float tile[TILE_DIM][TILE_DIM+1];</div>
+	<p>
+	<table>
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>4.116 ms</td><td> 4.219 ms</td><td> 25.886 ms</td><td> 29.074 ms</td><td>  7.59 GB/s</td><td>  7.41 GB/s</td></tr>
+		<tr><td>  Shared Memory Copy: </td><td>5.971 ms</td><td> 4.256 ms</td><td> 25.355 ms</td><td> 26.433 ms</td><td>  5.23 GB/s</td><td>  7.34 GB/s</td></tr>
+		<tr><td>  Naive Transpose: </td><td>37.532 ms</td><td> 35.556 ms</td><td> 27.122 ms</td><td> 28.410 ms</td><td>  0.83 GB/s</td><td>  0.88 GB/s</td></tr>
+		<tr><td>  Coalesced Transpose: </td><td>12.735 ms</td><td> 8.766 ms</td><td> 26.085 ms</td><td> 26.751 ms</td><td>  2.45 GB/s</td><td>  3.56 GB/s</td></tr>
+		<tr><td>  Bank Conflict Free Transpose: </td><td>7.956 ms</td><td> 5.684 ms</td><td> 26.804 ms</td><td> 29.937 ms</td><td>  3.93 GB/s</td><td>  5.50 GB/s</td></tr>
+	</table>
+	<p>
+	Look at the improvement in performance.  The results are improving, we are slowly inching closer to our goal.  Padding will not affect the shared memory bank access pattern
+	when writing to a half warp.  By adding a single column this allows us to access a half warp of data in a column that is also conflict free.
+	<h3>Decomposing Transpose</h3>
+	Now lets take a look at two more pieces of "transpose" code.  Although they look similar to what we've seen before, they will serve as another
+	benchmarking tool for the next section.
+	<p>
+	The code below shows two new kernels respectively named Fine Grained and Coarse Grained Transpose.  There are basically two differences between the
+	copy code and the transpose code that we saw previously, tranposing the data within a tile, and writing data to a transposed tile.  The following two
+	kernels implement one of these components.  The fine-grained transpose kernel will take the data and transpose it within a tile, but then it will write
+	the actual tile to the location that a copy would write the tile.  The coarse-grained transpose doesn't actually do any transposing, it just writes the 
+	tile to the transposed location in the odata matrix.
+	<p>
+	Fine Grained Transpose:
+	<p>
+	<div id='code'>
+			<pre><ol><li>__global__ void transposeFineGrained( float* odata, float* idata, int width, int height, int nreps, const int blockRows )
+</li><li>{
+</li><li>	__shared__ float block[ TILE_DIM ][ TILE_DIM + 1 ];
+</li><li>	
+</li><li>	int xIndex = blockIdx.x * TILE_DIM + threadIdx.x;
+</li><li>	int yIndex = blockIdx.y * TILE_DIM + threadIdx.y;
+</li><li>	int index = xIndex + (yIndex) * width;
+</li><li>	
+</li><li>	for( int r = 0; r < nreps; r++ )
+</li><li>	{
+</li><li>		for( int i = 0; i < TILE_DIM; i += blockRows )
+</li><li>		{
+</li><li>			block[ threadIdx.y + i ][ threadIdx.x ] = idata[ index + i * width];
+</li><li>		}
+</li><li>		
+</li><li>		__syncthreads();
+</li><li>		
+</li><li>		for( int i = 0; i < TILE_DIM; i += blockRows )
+</li><li>		{
+</li><li>			odata[ index + i * height] = block[ threadIdx.x ][ threadIdx.y + i ];
+</li><li>		}
+</li><li>	}
+</li><li>}</li></ol></pre>
+	</div>
+	
+	<p>
+	Coarse Grained Transpose:
+	<p>
+	<div id='code'>
+			<pre><ol><li>__global__ void transposeCoarseGrained( float* odata, float* idata, int width, int height, int nreps, const int blockRows )
+</li><li>{
+</li><li>	__shared__ float block[TILE_DIM][TILE_DIM+1];
+</li><li>	
+</li><li>	int xIndex = blockIdx.x * TILE_DIM + threadIdx.x; 
+</li><li>	int yIndex = blockIdx.y * TILE_DIM + threadIdx.y; 
+</li><li>	int index_in = xIndex + ( yIndex ) * width;
+</li><li>	
+</li><li>	xIndex = blockIdx.y * TILE_DIM + threadIdx.x; 
+</li><li>	yIndex = blockIdx.x * TILE_DIM + threadIdx.y; 
+</li><li>	int index_out = xIndex + ( yIndex ) * height;
+</li><li>	
+</li><li>	for (int r = 0; r < nreps; r++) 
+</li><li>	{
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) 
+</li><li>		{
+</li><li>			block[ threadIdx.y + i ][ threadIdx.x ] = idata[ index_in + i * width ];
+</li><li>		}
+</li><li>		
+</li><li>		__syncthreads();
+</li><li>		
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) 
+</li><li>		{ 
+</li><li>			odata[ index_out + i * height ] = block[ threadIdx.y + i ][ threadIdx.x ];
+</li><li>		}
+</li><li>	}
+</li><li>}</li></ol></pre>
+	</div>
+	<p>
+	Results:
+	<p>
+	<table>
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>4.116 ms</td><td> 4.219 ms</td><td> 25.886 ms</td><td> 29.074 ms</td><td>  7.59 GB/s</td><td>  7.41 GB/s</td></tr>
+		<tr><td>  Shared Memory Copy: </td><td>5.971 ms</td><td> 4.256 ms</td><td> 25.355 ms</td><td> 26.433 ms</td><td>  5.23 GB/s</td><td>  7.34 GB/s</td></tr>
+		<tr><td>  Naive Transpose: </td><td>37.532 ms</td><td> 35.556 ms</td><td> 27.122 ms</td><td> 28.410 ms</td><td>  0.83 GB/s</td><td>  0.88 GB/s</td></tr>
+		<tr><td>  Coalesced Transpose: </td><td>12.735 ms</td><td> 8.766 ms</td><td> 26.085 ms</td><td> 26.751 ms</td><td>  2.45 GB/s</td><td>  3.56 GB/s</td></tr>
+		<tr><td>  Bank Conflict Free Transpose: </td><td>7.956 ms</td><td> 5.684 ms</td><td> 26.804 ms</td><td> 29.937 ms</td><td>  3.93 GB/s</td><td>  5.50 GB/s</td></tr>
+		<tr><td>  Fine Grained Transpose: </td><td>7.332 ms</td><td> 5.313 ms</td><td> 26.173 ms</td><td> 26.217 ms</td><td>  4.26 GB/s</td><td>  5.88 GB/s</td></tr> 
+  		<tr><td>  Coarse Grained Transpose: </td><td>7.377 ms</td><td> 5.442 ms</td><td> 26.366 ms</td><td> 26.868 ms</td><td>  4.24 GB/s</td><td>  5.74 GB/s</td></tr>
+	</table>
+	<p>
+	The gap is closing.  An interesting observation here is that the values don't differ much compared to the results in the paper.  The authors saw a difference of around 
+	64 GB/s between the Fine Grained and Coarse Grained kernel runs.  The reason it may be smaller for me is that spectrum of numbers that we started out with weren't as extreme
+	as what the authors saw when they ran their tests.  Either way an interesting observation is that the coarse grained kernel (which ISN'T performing a transpose)
+	is still performing worse than the fine grained kernel (which IS performing a transpose), this is because of a topic called partition camping.
+	<p>
+	The problem of partition camping is similar to the problems we encountered earlier with concept of the way shared memory is divided into 16 banks of 32-bit width.  
+	Global memory is also divided into either 6 partitions ( 8-, 9- series GPUs [mine]) or 8 partitions ( on 200- and 10-series GPUs) of 256-byte width.  As mentioned before, in order for
+	shared memory to be used effectively, the threads within a half warp should keep away from accessing the same banks simultaneously.  Partition camping is when global memory
+	accesses are being issued through a subset of partitions, this causes a problem because requests are then queued up at some partitions while the other partitions go unused.
+	<p>
+	<h3>Diagonal block reordering</h3>
+	We can avoid partition camping by changing the layout of how the matrices are stored within their arrays.  Instead of the elements of our matrices being contiguously organized
+	within the array we will arrange them in a diagonal fashion.  We do this by changing the blockIds with the following code:
+	<p>
+	<div id='code'>
+			<ol>
+					<li>blockIdx_y = blockIdx.x;</li>
+				 	<li>blockIdx_x = ( blockIdx.x + blockIdx.y ) % gridDim.x;</li>
+			</ol>	
+	</div>
+	Full Code:
+	<div id='code'>
+			<pre><ol><li>__global__ void transposeDiagonal( float* odata, float* idata, int width, int height, int nreps, const int blockRows )
+</li><li>{
+</li><li>	__shared__ float tile[ TILE_DIM ][ TILE_DIM + 1 ];
+</li><li>	
+</li><li>	int blockIdx_x, blockIdx_y;
+</li><li>	
+</li><li>	// diagonal reordering
+</li><li>	if (width == height) 
+</li><li>	{
+</li><li>		blockIdx_y = blockIdx.x;
+</li><li>		blockIdx_x = ( blockIdx.x + blockIdx.y ) % gridDim.x;
+</li><li>	} 
+</li><li>	else {
+</li><li>		int bid = blockIdx.x + gridDim.x*blockIdx.y;
+</li><li>		blockIdx_y = bid % gridDim.y;
+</li><li>		blockIdx_x = ( ( bid / gridDim.y ) + blockIdx_y ) % gridDim.x;
+</li><li>	}
+</li><li>	
+</li><li>	int xIndex = blockIdx_x * TILE_DIM + threadIdx.x;
+</li><li>	int yIndex = blockIdx_y * TILE_DIM + threadIdx.y;
+</li><li>	int index_in = xIndex + (yIndex) * width;
+</li><li>	
+</li><li>	xIndex = blockIdx_y * TILE_DIM + threadIdx.x;
+</li><li>	yIndex = blockIdx_x * TILE_DIM + threadIdx.y;
+</li><li>	int index_out = xIndex + (yIndex) * height;
+</li><li>	for (int r = 0; r < nreps; r++) 
+</li><li>	{
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) {
+</li><li>			tile[ threadIdx.y+i ][ threadIdx.x ] =
+</li><li>			idata[ index_in+i*width ];
+</li><li>		}
+</li><li>	
+</li><li>		__syncthreads();
+</li><li>	
+</li><li>		for (int i = 0; i < TILE_DIM; i += blockRows) 
+</li><li>		{
+</li><li>			odata[index_out+i*height] = tile[threadIdx.x][threadIdx.y+i];
+</li><li>		}
+</li><li>	}
+</li><li>}</li></ol></pre>
+	</div>
+	<p>
+	The paper has an excellent picture demonstrating how this works on page 18.  The picture shows how the pairs of tiles cycle through the partitions.
+	<p>
+	<table>
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>4.116 ms</td><td> 4.219 ms</td><td> 25.886 ms</td><td> 29.074 ms</td><td>  7.59 GB/s</td><td>  7.41 GB/s</td></tr>
+		<tr><td>  Shared Memory Copy: </td><td>5.971 ms</td><td> 4.256 ms</td><td> 25.355 ms</td><td> 26.433 ms</td><td>  5.23 GB/s</td><td>  7.34 GB/s</td></tr>
+		<tr><td>  Naive Transpose: </td><td>37.532 ms</td><td> 35.556 ms</td><td> 27.122 ms</td><td> 28.410 ms</td><td>  0.83 GB/s</td><td>  0.88 GB/s</td></tr>
+		<tr><td>  Coalesced Transpose: </td><td>12.735 ms</td><td> 8.766 ms</td><td> 26.085 ms</td><td> 26.751 ms</td><td>  2.45 GB/s</td><td>  3.56 GB/s</td></tr>
+		<tr><td>  Bank Conflict Free Transpose: </td><td>7.956 ms</td><td> 5.684 ms</td><td> 26.804 ms</td><td> 29.937 ms</td><td>  3.93 GB/s</td><td>  5.50 GB/s</td></tr>
+		<tr><td>  Fine Grained Transpose: </td><td>7.332 ms</td><td> 5.313 ms</td><td> 26.173 ms</td><td> 26.217 ms</td><td>  4.26 GB/s</td><td>  5.88 GB/s</td></tr> 
+  		<tr><td>  Coarse Grained Transpose: </td><td>7.377 ms</td><td> 5.442 ms</td><td> 26.366 ms</td><td> 26.868 ms</td><td>  4.24 GB/s</td><td>  5.74 GB/s</td></tr>
+  		<tr><td>  Optimized Diagonal Transpose: </td><td>10.266 ms</td><td> 5.816 ms</td><td> 26.641 ms</td><td> 25.490 ms</td><td>  3.04 GB/s</td><td>  5.37 GB/s</td></tr>
+	</table>
+	<h3>Experimenting with Different Configurations</h3>
+	Here are some runs I've done to play with the grid/thread numbers.  Please note that the "Thread X", "Thread Y", "Grid X", "Grid Y" values
+	are not used if they are not used in the command line flags list (therefore, please ignore them, instead reference the Grid Dimensions and Thread
+	Dimensions for accurate values).
+	<h4>Run 1:</h4>
+	<p>Configuration:
+	<table>
+  		<tr><td>Matrix Rows (size_x): </td><td>2048</td></tr>
+		<tr><td>Matrix Cols (size_y): </td><td>2048</td></tr>
+  		<tr><td>Block Rows: </td><td>8</td></tr>
+  		<tr><td>Thread X: </td><td>1</td></tr>
+  		<tr><td>Thread Y: </td><td>1</td></tr>
+  		<tr><td>Grid X: </td><td>1</td></tr>
+  		<tr><td>Grid Y: </td><td>1</td></tr>
+  		<tr><td>Tile Dim: </td><td>32</td></tr>
+  		<tr><td>Number of Iterations: </td><td>100</td></tr>
+  		<tr><td>Grid Dimensions:</td><td>grid( 64, 64, 1 ) - Total: 4096</td></tr>
+  		<tr><td>Thread Dimensions:</td><td>thread( 32, 8, 1 ) - Total: 256</td></tr>
+  		<tr><td>Setup:</td><td>Using default grid( size_x / tileDim, size_y / tileDim, 1 ), thread( tileDim, blockRows, 1 )</td></tr>
+	</table>
+	<p>Copies:
+	<table>
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr>
+  		<tr><td>  Simple Copy: </td><td>4.113 ms</td><td> 4.208 ms</td><td> 27.007 ms</td><td> 42.336 ms</td><td>  7.60 GB/s</td><td>  7.43 GB/s</td></tr>
+  		<tr><td>  Shared Memory Copy: </td><td>5.960 ms</td><td> 4.252 ms</td><td> 26.767 ms</td><td> 26.129 ms</td><td>  5.24 GB/s</td><td>  7.35 GB/s</td></tr>
+	</table>
+	<p>Transposes:
+	<table>
+		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr>
+  		<tr><td>  Naive Transpose: </td><td>37.738 ms</td><td> 35.518 ms</td><td> 29.080 ms</td><td> 28.343 ms</td><td>  0.83 GB/s</td><td>  0.88 GB/s</td></tr>
+  		<tr><td>  Coalesced Transpose: </td><td>12.666 ms</td><td> 8.759 ms</td><td> 25.549 ms</td><td> 40.781 ms</td><td>  2.47 GB/s</td><td>  3.57 GB/s</td></tr>
+  		<tr><td>  Bank Conflict Free Transpose: </td><td>7.850 ms</td><td> 5.690 ms</td><td> 25.280 ms</td><td> 25.772 ms</td><td>  3.98 GB/s</td><td>  5.49 GB/s</td></tr>
+  		<tr><td>  Fine Grained Transpose: </td><td>7.293 ms</td><td> 5.299 ms</td><td> 25.380 ms</td><td> 25.222 ms</td><td>  4.28 GB/s</td><td>  5.90 GB/s</td></tr>
+  		<tr><td>  Coarse Grained Transpose: </td><td>7.370 ms</td><td> 5.447 ms</td><td> 25.217 ms</td><td> 25.343 ms</td><td>  4.24 GB/s</td><td>  5.74 GB/s</td></tr>
+  		<tr><td>  Optimized Diagonal Transpose: </td><td>10.262 ms</td><td> 5.801 ms</td><td> 25.361 ms</td><td> 25.163 ms</td><td>  3.05 GB/s</td><td>  5.39 GB/s</td></tr>
+	</table>
+	<p>
+	<h4>Run 2:</h4>
+	<p>Configuration:
+	<table> 
+  		<tr><td>Matrix Rows (size_x): </td><td>2048</td></tr> 
+  		<tr><td>Matrix Cols (size_y): </td><td>1024</td></tr> 
+  		<tr><td>Block Rows: </td><td>8</td></tr> 
+  		<tr><td>Thread X: </td><td>1</td></tr> 
+  		<tr><td>Thread Y: </td><td>1</td></tr> 
+  		<tr><td>Grid X: </td><td>1</td></tr> 
+  		<tr><td>Grid Y: </td><td>1</td></tr> 
+  		<tr><td>Tile Dim: </td><td>32</td></tr> 
+  		<tr><td>Number of Iterations: </td><td>100</td></tr> 
+  		<tr><td>Grid Dimensions:</td><td>grid( 64, 32, 1 ) - Total: 2048</td></tr> 
+  		<tr><td>Thread Dimensions:</td><td>thread( 32, 8, 1 ) - Total: 256</td></tr> 
+  		<tr><td>Setup:</td><td>Using default grid( size_x / tileDim, size_y / tileDim, 1 ), thread( tileDim, blockRows, 1 )</td></tr> 
+	</table> 
+	<p>Copies:
+	<table> 
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>2.163 ms</td><td> 2.295 ms</td><td> 12.674 ms</td><td> 16.329 ms</td><td>  7.22 GB/s</td><td>  6.81 GB/s</td></tr> 
+  		<tr><td>  Shared Memory Copy: </td><td>3.005 ms</td><td> 2.164 ms</td><td> 12.930 ms</td><td> 12.713 ms</td><td>  5.20 GB/s</td><td>  7.22 GB/s</td></tr> 
+	</table> 
+	<p>Transposes:
+	<table> 
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Naive Transpose: </td><td>18.462 ms</td><td> 16.892 ms</td><td> 13.260 ms</td><td> 15.457 ms</td><td>  0.85 GB/s</td><td>  0.93 GB/s</td></tr> 
+  		<tr><td>  Coalesced Transpose: </td><td>6.348 ms</td><td> 4.347 ms</td><td> 12.966 ms</td><td> 14.336 ms</td><td>  2.46 GB/s</td><td>  3.59 GB/s</td></tr> 
+  		<tr><td>  Bank Conflict Free Transpose: </td><td>3.970 ms</td><td> 2.699 ms</td><td> 12.692 ms</td><td> 13.588 ms</td><td>  3.94 GB/s</td><td>  5.79 GB/s</td></tr> 
+  		<tr><td>  Fine Grained Transpose: </td><td>3.678 ms</td><td> 2.624 ms</td><td> 12.725 ms</td><td> 12.711 ms</td><td>  4.25 GB/s</td><td>  5.95 GB/s</td></tr> 
+  		<tr><td>  Coarse Grained Transpose: </td><td>3.703 ms</td><td> 2.610 ms</td><td> 12.641 ms</td><td> 13.758 ms</td><td>  4.22 GB/s</td><td>  5.99 GB/s</td></tr> 
+  		<tr><td>  Optimized Diagonal Transpose: </td><td>6.982 ms</td><td> 2.799 ms</td><td> 13.121 ms</td><td> 13.603 ms</td><td>  2.24 GB/s</td><td>  5.58 GB/s</td></tr> 
+	</table> 
+	<p>
+	<h4>Run 3:</h4>
+	<p>Configuration:
+	<table> 
+  		<tr><td>Matrix Rows (size_x): </td><td>2048</td></tr> 
+  		<tr><td>Matrix Cols (size_y): </td><td>2048</td></tr> 
+  		<tr><td>Block Rows: </td><td>8</td></tr> 
+  		<tr><td>Thread X: </td><td>1</td></tr> 
+  		<tr><td>Thread Y: </td><td>1</td></tr> 
+  		<tr><td>Grid X: </td><td>1</td></tr> 
+  		<tr><td>Grid Y: </td><td>1</td></tr> 
+  		<tr><td>Tile Dim: </td><td>64</td></tr> 
+  		<tr><td>Number of Iterations: </td><td>100</td></tr> 
+  		<tr><td>Grid Dimensions:</td><td>grid( 32, 32, 1 ) - Total: 1024</td></tr> 
+  		<tr><td>Thread Dimensions:</td><td>thread( 64, 8, 1 ) - Total: 512</td></tr> 
+  		<tr><td>Setup:</td><td>Using default grid( size_x / tileDim, size_y / tileDim, 1 ), thread( tileDim, blockRows, 1 )
+	</td></tr> 
+	</table> 
+	<p>Copies:
+	<table> 
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Simple Copy: </td><td>2.148 ms</td><td> 1.999 ms</td><td> 27.623 ms</td><td> 28.364 ms</td><td> 14.55 GB/s</td><td> 15.63 GB/s</td></tr> 
+  		<tr><td>  Shared Memory Copy: </td><td>3.848 ms</td><td> 2.814 ms</td><td> 25.142 ms</td><td> 25.774 ms</td><td>  8.12 GB/s</td><td> 11.11 GB/s</td></tr> 
+	</table> 
+	<p>Transposes:
+	<table> 
+  		<tr><td>&nbsp;</td><td colspan='4'>Time</td><td colspan='2'>Bandwidth</td></tr><tr><td>&nbsp;</td><td>Loop over kernel</td><td>Loop in kernel</td><td>Outer Read Back</td><td>Inner Read Back</td><td>Loop over kernel</td><td>Loop in kernel</td></tr> 
+  		<tr><td>  Naive Transpose: </td><td>17.861 ms</td><td> 18.026 ms</td><td> 26.654 ms</td><td> 28.411 ms</td><td>  1.75 GB/s</td><td>  1.73 GB/s</td></tr> 
+  		<tr><td>  Coalesced Transpose: </td><td>6.680 ms</td><td> 4.700 ms</td><td> 25.322 ms</td><td> 26.313 ms</td><td>  4.68 GB/s</td><td>  6.65 GB/s</td></tr> 
+  		<tr><td>  Bank Conflict Free Transpose: </td><td>4.653 ms</td><td> 2.935 ms</td><td> 25.344 ms</td><td> 25.918 ms</td><td>  6.72 GB/s</td><td> 10.65 GB/s</td></tr> 
+  		<tr><td>  Fine Grained Transpose: </td><td>4.388 ms</td><td> 2.819 ms</td><td> 25.323 ms</td><td> 25.157 ms</td><td>  7.12 GB/s</td><td> 11.09 GB/s</td></tr> 
+  		<tr><td>  Coarse Grained Transpose: </td><td>4.347 ms</td><td> 2.837 ms</td><td> 25.797 ms</td><td> 26.162 ms</td><td>  7.19 GB/s</td><td> 11.01 GB/s</td></tr> 
+  		<tr><td>  Optimized Diagonal Transpose: </td><td>5.873 ms</td><td> 2.933 ms</td><td> 25.235 ms</td><td> 25.418 ms</td><td>  5.32 GB/s</td><td> 10.65 GB/s</td></tr> 
+	</table> 
+	
+	
+	<h3>Program Features</h3>
+	<h4>Command Line Arguments</h4>
+	In order to make generating results much easier, I've opted to add a long list of command line arguments that you can use to experiment with.
+	Here is a description of what each one does:
+	<p>
+	<ul>
+		<li>-matrows=&lt;number&gt;  : Number of matrix rows</li>
+   		<li>-matcols=&lt;number&gt;  : Number of matrix columns</li>
+ 		<li>-tiledim=&lt;number&gt;  : Tile dimension</li>
+   		<li>-blockrows=&lt;number&gt;  : Number of block rows</li>
+   		<li>-threadx=&lt;number&gt;  : Number of x threads</li>
+   		<li>-thready=&lt;number&gt;  : Number of y threads</li>
+   		<li>-gridx=&lt;number&gt;  : Number of x grids</li>
+   		<li>-gridy=&lt;number&gt;  : Number of y grids</li>
+   		<li>-iter=&lt;number&gt;  : Number of iterations</li>
+   	</ul>
+   	Example(from above): <span id='code'>./final -matrows=2048 -matcols=2048 -tiledim=32 -iter=100 -blockrows=8</span>
+   	<p>
+   	<h4>Output Formats</h4>
+   	My program was designed with ease in mind, if you need to generate many results it doesn't take too long to tweak the command line arguments 
+   	listed above.  With each run of the program, a corresponding .txt and .html file is created.  Since we were posting our results to the web 
+   	I figured it would only be appropriate to create a file that contains nicely formatted HTML.  The HTML format makes it much easier to quickly
+   	glance at the resulting data once you've run the program.  The log files can be found in the /Developer/GPU Computing/C/bin/darwin/release/results/
+   	directory (this is the directory you should have created upon running the program).
+	
+	<a name='downloadProject'>
+	<h3>Download</h3>
+	<p>
+	Get my code <a href='./projects/cs525/files/cuda-final.zip'>here</a>
+	<p>
+	Directions for installing CUDA:
+		<ol>
+			<li>Go to: <a href='http://developer.nvidia.com/object/cuda_3_0_downloads.html'>Download CUDA 3.0</a></li>
+			<li>Install in the order mentioned in the <a href='http://developer.download.nvidia.com/compute/cuda/3_0/docs/GettingStartedMacOS.pdf'>Getting Started Guide for Mac</a>
+			<li>You may have to add this to your ~.bash_profile and source it:<br>
+			export PATH=/usr/local/cuda/bin:$PATH<br>
+			export DYLD_LIBRARY_PATH=/usr/local/cuda/lib:$DYLD_LIBRARY_PATH</li>
+		</ol>
+			
+	Directions for Running:
+		<ol>
+			<li>Unzip contents to your /Developer/GPU Computing/C/bin/src/final/ directory</li>
+			<li>Go to /Developer/GPU Computing/C/bin/src/final/ in command line and type: make</li>
+			<li>Go to /Developer/GPU Computing/C/bin/darwin/release/ and do (this is where the html/txt result files will be stored): mkdir results</li>
+			<li>To run from command line when you're in /Developer/GPU Computing/C/bin/darwin/release/, type: ./final -matrows=2048 -matcols=2048 -tiledim=32 -iter=100 -blockrows=8</li>
+		</ol>
+	
+					</div>
+			</div>
+				
+			</div>
+			<div id="rightcontainer">
+				<div id="contentbox">
+					<div id="contentboxtop"><span style="font-weight: bold;">Game Development</div>
+					<div id="contentboxcontent">
+						<ul>
+							<li><a href="http://sites.google.com/site/sharpedgegames/">Robot vs Zombots</a>
+						</ul>
+					</div>
+					<div id="contentboxtop" style="margin-top: 5px"><span style="font-weight: bold;">Computer Animation</div>
+					<div id="contentboxcontent">
+						<ul>
+							<li><a href="http://sites.google.com/site/gingerabbit/project-definition">Project 1 - Blender Intro</a></li>
+							<li><a href="http://sites.google.com/site/gingerabbit/project-2">Project 2 - Flocking Simulation</a></li>
+							<li><a href="http://sites.google.com/site/gingerabbit/project-3">Project 3 - Music Video with Motion Capture</a></li>
+						</ul>
+					</div>
+					<div id="contentboxtop" style="margin-top: 5px"><span style="font-weight: bold;">GPU Programming</a></div>
+					<div id="contentboxcontent">
+						<ul>
+							<li><a href="projects.php?project=glsl">Project 1 - GLSL</a></li>
+							<li><a href="projects.php?project=cuda">Project 2 - CUDA</a></li>
+							<li><a href="projects.php?project=cuda2">Project 2 - CUDA - Director's Cut</a></li>
+							<li><a href="projects.php?project=gpugeneratedterrainproposal">Project 3 Proposal - Procedurally Generated Terrains on GPU</a></li>
+							<li><a href="projects.php?project=gpugeneratedterrain">Project 3 - Procedurally Generated Terrains on GPU</a></li>
+							<li><a href="projects.php?project=finalmatrixtranspose">Final Take Home Project - Matrix Transpose on GPU</a></li>
+						</ul>
+					</div>
+					<div id="contentboxtop" style="margin-top: 5px"><span style="font-weight: bold;">iPhone Development</a></div>
+					<div id="contentboxcontent">
+						<ul>
+							<li><a href="http://www.echobat.net">Echobats</a></li>
+						</ul>
+					</div>
+				
+				</div>
+			</div>
+                </div>
+        </body>
+<html>

@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<link rel="canonical" href="https://developer.nvidia.com/content/efficient-matrix-transpose-cuda-cc" />
+<link rel="shortcut icon" href="/sites/all/themes/devzone/favicon.ico" type="image/x-icon" />
+<meta name="description" content="My last CUDA C++ post covered the mechanics of using shared memory, including static and dynamic allocation. In this post I will show some of the performance gains achievable using shared memory. Specifically, I will optimize a matrix transpose to show how to use shared memory to reorder strided global memory accesses into coalesced accesses." />
+<meta name="dcterms.description" content="My last CUDA C++ post covered the mechanics of using shared memory, including static and dynamic allocation. In this post I will show some of the performance gains achievable using shared memory. Specifically, I will optimize a matrix transpose to show how to use shared memory to reorder strided global memory accesses into coalesced accesses." />
+<link rel="canonical" href="https://developer.nvidia.com/content/efficient-matrix-transpose-cuda-cc" />
+<meta name="revisit-after" content="1 day" />
+    <link type="text/css" rel="stylesheet" media="all" href="/sites/all/modules/custom/nvidia_helper/nvidia_helper.css?A" />
+<link type="text/css" rel="stylesheet" media="all" href="/sites/default/files/css/css_c65136709f68d1b7373379479b105a42.css" />
+<link type="text/css" rel="stylesheet" media="screen" href="/sites/default/files/css/css_c6dc2a735dafee55caff592169215a02.css" />
+<link type="text/css" rel="stylesheet" media="print" href="/sites/default/files/css/css_19c0f62b2be81aea750c5f1497f4fa2a.css" />
+<link type="text/css" rel="stylesheet" media="all" href="/sites/all/modules/custom/nvidia_blog/styles/blog_styles.css?A" />
+		<link href='https://fonts.googleapis.com/css?family=Oxygen:400,700' rel='stylesheet' type='text/css'>
+	<title>An Efficient Matrix Transpose in CUDA C/C++ | NVIDIA Developer Zone</title>
+</head>
+<body  class="not-front not-logged-in page-node node-type-blog one-sidebar sidebar-right tao">
+    <div id='branding'>
+		<div class='limiter clear-block'>
+			<h1 class='site-name'><a href="/">NVIDIA Developer Zone</a></h1>			<div class='block block-theme'><form action="/content/efficient-matrix-transpose-cuda-cc"  accept-charset="UTF-8" method="post" id="search-theme-form">
+<div><div id="search" class="container-inline">
+  <div  class="form-item form-item-labeled" id="edit-search-theme-form-1-wrapper">
+      <label  for="edit-search-theme-form-1">Search this site: </label>
+    <input type="text" maxlength="128" name="search_theme_form" id="edit-search-theme-form-1" size="15" value="" title="Enter the terms you wish to search for." class="form-text" />  </div>
+<span class="button"><span><input type="submit" name="op" id="edit-submit" value="Search"  class="form-submit" />
+</span></span><input type="hidden" name="form_build_id" id="form-2defb77524f95a26fa908c3b5ee97ef7" value="form-2defb77524f95a26fa908c3b5ee97ef7"  />
+<input type="hidden" name="form_id" id="edit-search-theme-form" value="search_theme_form"  />
+</div>
+
+</div></form>
+</div>							  <div class="block block-nice_menus" id="block-nice_menus-1">
+  <div class="block-content clear-block">
+    <ul class="nice-menu nice-menu-down" id="nice-menu-1"><li class="menu-328 menuparent menu-path-front first  odd "><a href="/" title="">Developer Centers</a><ul><li class="menu-1191 menu-path-taxonomy-term-1 first  odd "><a href="/category/zone/game-graphics-development" title="">Game &amp; Graphics</a></li>
+<li class="menu-1192 menu-path-taxonomy-term-2 even "><a href="/category/zone/cuda-zone" title="">CUDA Zone</a></li>
+<li class="menu-1193 menu-path-taxonomy-term-3 odd "><a href="/category/zone/mobile-development" title="">Mobile</a></li>
+<li class="menu-1194 menu-path-taxonomy-term-4 even  last "><a href="/category/zone/professional-graphics" title="">Professional Graphics</a></li>
+</ul>
+</li>
+<li class="menu-1444 menuparent menu-path-technologies even "><a href="/technologies" title="">Technologies</a><ul><li class="menu-1445 menu-path-node-18281 first  odd "><a href="/apex" title="">APEX</a></li>
+<li class="menu-1447 menu-path-node-185356 even "><a href="/gpu-accelerated-libraries" title="">CUDA Libraries</a></li>
+<li class="menu-1451 menu-path-node-18941 odd "><a href="/application-engine-introduction" title="">Engines</a></li>
+<li class="menu-3586 menu-path-node-9896 even "><a href="/gpudirect" title="">GPUDirect</a></li>
+<li class="menu-1446 menu-path-technologies-languages_apis odd "><a href="/technologies/languages_apis" title="">Languages &amp; APIs</a></li>
+<li class="menu-1448 menu-path-technologies-physx even "><a href="/technologies/physx" title="">PhysX</a></li>
+<li class="menu-1449 menu-path-technologies-sdks odd  last "><a href="/technologies/sdks" title="">Samples and SDKs</a></li>
+</ul>
+</li>
+<li class="menu-329 menuparent menu-path-tools odd "><a href="/tools" title="">Tools</a><ul><li class="menu-3606 menu-path-node-9140 first  odd "><a href="/cuda-gdb" title="">CUDA-GDB</a></li>
+<li class="menu-4151 menu-path-node-21291 even "><a href="/cuda-memcheck" title="CUDA-MEMCHECK">CUDA-MEMCHECK</a></li>
+<li class="menu-3611 menu-path-node-18866 odd "><a href="/cuda-toolkit" title="">CUDA Toolkit &amp; SDK</a></li>
+<li class="menu-3616 menu-path-node-18466 even "><a href="/nvapi" title="">NVAPI</a></li>
+<li class="menu-4146 menu-path-node-9148 odd "><a href="/nvidia-visual-profiler" title="NVIDIA Visual Profiler">NVIDIA Visual Profiler</a></li>
+<li class="menu-19386 menu-path-node-504181 even "><a href="/nsight-eclipse-edition" title="">Nsight Eclipse Edition</a></li>
+<li class="menu-3626 menu-path-node-18511 odd "><a href="/nvidia-nsight-visual-studio-edition" title="">Nsight Visual Studio Edition</a></li>
+<li class="menu-19396 menu-path-node-541421 even "><a href="/nvidia-nsight-tegra" title="">Nsight Tegra, Visual Studio Edition</a></li>
+<li class="menu-3621 menu-path-node-22561 odd "><a href="/openautomate" title="">OpenAutomate</a></li>
+<li class="menu-3631 menu-path-node-18541 even "><a href="/nvidia-perfkit" title="">PerfKit</a></li>
+<li class="menu-3636 menu-path-node-19221 odd "><a href="/nvidia-perfhud-es" title="">PerfHUD ES</a></li>
+<li class="menu-3646 menu-path-node-18316 even "><a href="/physx-visual-debugger" title="">PhysX Visual Debugger</a></li>
+<li class="menu-3641 menu-path-node-18306 odd "><a href="/physxapex-dcc-tools" title="">PhysX/APEX DCC Tools</a></li>
+<li class="menu-19391 menu-path-node-431686 even  last "><a href="/tegra-profiler" title="">Tegra Profiler</a></li>
+</ul>
+</li>
+<li class="menu-330 menuparent menu-path-suggested-reading even "><a href="/suggested-reading" title="">Resources</a><ul><li class="menu-1433 menu-path-suggested-reading first  odd "><a href="/suggested-reading" title="">Suggested Reading</a></li>
+<li class="menu-1429 menu-path-node-76 even "><a href="/content/cg-tutorial-chapter-1-introduction" title="">Cg Tutorial</a></li>
+<li class="menu-4212 menu-path-node-156342 odd "><a href="/nvidia-gpu-programming-guide" title="">GPU Programming Guide</a></li>
+<li class="menu-1432 menu-path-https--developernvidiacom-gpu-gems even "><a href="https://developer.nvidia.com/gpu-gems" title="">GPU Gems</a></li>
+<li class="menu-1430 menu-path-node-146 odd  last "><a href="/content/gpu-gems-3" title="">GPU Gems 3</a></li>
+</ul>
+</li>
+<li class="menu-331 menuparent menu-path-front odd  last "><a href="/" title="">Community</a><ul><li class="menu-3651 menu-path-blog first  odd "><a href="/blog" title="">DevZone Blog</a></li>
+<li class="menu-20230 menu-path-devtalknvidiacom even  last "><a href="http://devtalk.nvidia.com" title="">Developer Zone Forums</a></li>
+</ul>
+</li>
+</ul>
+  </div>
+</div>  <div class="block block-nice_menus" id="block-nice_menus-2">
+  <h2 class="block-title"><span class="nice-menu-hide-title">Secondary links</span></h2>
+  <div class="block-content clear-block">
+    <ul class="nice-menu nice-menu-down" id="nice-menu-2"><li class="menu-1395 menu-path-user-login first  odd  last "><a href="/user/login" title="">Log In</a></li>
+</ul>
+  </div>
+</div>					</div>
+	</div>
+			<div id='sub-nav' class="limiter">
+							<div id='zone-title'>
+					CUDA ZONE				</div>
+					</div>
+		<div id="header-divider" <div/>
+			<div id='breadcrumb'>
+			<div class="breadcrumb"><a href="/">Home</a> > <span class="zone-logo cuda-zone"><a href="/category/zone/cuda-zone">CUDA <span class="zone-crumb">ZONE</span></a></span> > <a href="/blog/term/2">Parallel Forall</a></div>		</div>
+	  <div id='page'>
+		<div class='limiter clear-block'>
+						<div id='main' class='clear-block'>
+				
+				<h1 class='page-title'>An Efficient Matrix Transpose in CUDA C/C++</h1>												
+				
+				<div id='content' class='clear-block'>
+  
+  <div  id="node-596716" class="node node-blog">
+              <div class="blog-page">
+        <h2 class="blog-title"></h2>
+                  <span class="submitted">By Mark Harris, posted Feb 18 2013 at 09:55PM</span>
+                            <div class="rss-icon"><a href="/blog/feed/2" onclick="s_objectID='/blog/feed/2_1';return this.s_oc?this.s_oc(e):true">RSS Feed</a></div>
+                <p>Tags: <a href="/blog/tags/4501">CUDA C</a>, <a href="/blog/tags/3546">Performance</a>, <a href="/blog/tags/4848">Shared Memory</a></p>
+      </div>
+      <div class='node-content clear-block prose'>
+                  <div class="product-image"><a href="https://developer.nvidia.com/sites/default/files/akamai/cuda/images/parallel-forall/cuda_cpp_simple_0.gif" class="imagecache imagecache-Blog_image imagecache-imagelink imagecache-Blog_image_imagelink"><img src="https://developer.nvidia.com/sites/default/files/imagecache/Blog_image/akamai/cuda/images/parallel-forall/cuda_cpp_simple_0.gif" alt="" title="" width="340" height="190" class="imagecache imagecache-Blog_image"/></a></div>
+                <div class="product-body"><p>My last<a href="https://developer.nvidia.com/content/using-shared-memory-cuda-cc"> CUDA C++ post</a> covered the mechanics of using shared memory, including static and dynamic allocation. In this post I will show some of the performance gains achievable using shared memory. Specifically, I will optimize a matrix transpose to show how to use shared memory to reorder strided global memory accesses into coalesced accesses.</p>
+<h1>
+	Matrix Transpose</h1>
+<p>The code we wish to optimize is a transpose of a matrix of single precision values that operates out-of-place, i.e. the input and output are separate arrays in memory. For simplicity of presentation, we&rsquo;ll consider only square matrices whose dimensions are integral multiples of 32 on a side. The entire code is <a href="https://github.com/parallel-forall/code-samples/blob/master/series/cuda-cpp/transpose/transpose.cu" target="_blank">available on Github</a>. It consists of several kernels as well as host code to perform typical tasks such as allocation and data transfers between host and device, launches and timing of several kernels as well as validation of their results, and deallocation of host and device memory. In this post I&rsquo;ll only include the kernel code; you can view the rest or try it out on Github.</p>
+<p>In addition to performing several different matrix transposes, we run simple matrix copy kernels because copy performance indicates the performance that we would like the matrix transpose to achieve. For both matrix copy and transpose, the relevant performance metric is effective bandwidth, calculated in GB/s by dividing twice the size in GB of the matrix (once for loading the matrix and once for storing) by time in seconds of execution.</p>
+
+<p>All kernels in this study launch blocks of 32&times;8 threads (<kbd>TILE_DIM=32, </kbd><kbd>BLOCK_ROWS=8 in the code)</kbd>, and each thread block transposes (or copies) a tile of size 32&times;32. Using a thread block with fewer threads than elements in a tile is advantageous for the matrix transpose because each thread transposes four matrix elements, so much of the index calculation cost is amortized over these elements.</p>
+<p>The kernels in this example map threads to matrix elements using a Cartesian <kbd>(x,y)</kbd> mapping rather than a row/column mapping to simplify the meaning of the components of the automatic variables in CUDA C: <kbd>threadIdx.x</kbd> is horizontal and <kbd>threadIdx.y</kbd> is vertical. This mapping is up to the programmer; the important thing to remember is that to <a href="https://developer.nvidia.com/content/how-access-global-memory-efficiently-cuda-cc-kernels" target="_blank">ensure memory coalescing</a> we want to map the quickest varying component to contiguous elements in memory. In Fortran contiguous addresses correspond to the first index of a multidimensional array, and <kbd>threadIdx.x</kbd> and <kbd>blockIdx.x</kbd> vary quickest within blocks and grids, respectively.</p>
+<h2>
+	Simple Matrix Copy</h2>
+<p>Let&rsquo;s start by looking at the matrix copy kernel.</p>
+<pre class="prettyprint">
+__global__ void copy(float *odata, const float *idata)
+{
+  int x = blockIdx.x * TILE_DIM + threadIdx.x;
+  int y = blockIdx.y * TILE_DIM + threadIdx.y;
+  int width = gridDim.x * TILE_DIM;
+
+  for (int j = 0; j &lt; TILE_DIM; j+= BLOCK_ROWS)
+    odata[(y+j)*width + x] = idata[(y+j)*width + x];
+}</pre>
+<p>Each thread copies four elements of the matrix in a loop at the end of this routine because the number of threads in a block is smaller by a factor of four (<kbd>TILE_DIM/BLOCK_ROWS</kbd>) than the number of elements in a tile. Note also that <kbd>TILE_DIM</kbd> must be used in the calculation of the matrix index <kbd>y</kbd> rather than <kbd>BLOCK_ROWS</kbd> or <kbd>blockDim.y</kbd>. The loop iterates over the second dimension and not the first so that contiguous threads load and store contiguous data, and all reads from <kbd>idata</kbd> and writes to <kbd>odata</kbd> are <a href="https://developer.nvidia.com/content/how-access-global-memory-efficiently-cuda-cc-kernels" target="_blank">coalesced</a>.</p>
+<h2>
+	Naive Matrix Transpose</h2>
+<p>Our first transpose kernel looks very similar to the copy kernel. The only difference is that the indices for <kbd>odata</kbd> are swapped.</p>
+<pre class="prettyprint">
+__global__ void transposeNaive(float *odata, const float *idata)
+{
+  int x = blockIdx.x * TILE_DIM + threadIdx.x;
+  int y = blockIdx.y * TILE_DIM + threadIdx.y;
+  int width = gridDim.x * TILE_DIM;
+
+  for (int j = 0; j &lt; TILE_DIM; j+= BLOCK_ROWS)
+    odata[x*width + (y+j)] = idata[(y+j)*width + x];
+}</pre>
+<p>In <kbd>transposeNaive</kbd> the reads from <kbd>idata</kbd> are coalesced as in the copy kernel, but for our 1024&times;1024 test matrix the writes to <kbd>odata</kbd> have a stride of 1024 elements or 4096 bytes between contiguous threads. This puts us well into the asymptote of the strided memory access plot from our <a href="https://developer.nvidia.com/content/how-access-global-memory-efficiently-cuda-cc-kernels" target="_blank">global memory coalescing post</a>, and we expect the performance of this kernel to suffer accordingly. The results of the <kbd>copy</kbd> and <kbd>transposeNaive</kbd> kernels bear this out.</p>
+<table align="center" border="0">
+	<tbody>
+		<tr>
+			<td>
+				&nbsp;</td>
+			<td align="center" colspan="2">
+				Effective Bandwidth (GB/s, ECC enabled)</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				Routine</td>
+			<td>
+				Tesla M2050</td>
+			<td>
+				Tesla K20c</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				copy</td>
+			<td>
+				105.2</td>
+			<td>
+				136.0</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeNaive</td>
+			<td>
+				18.8</td>
+			<td>
+				55.3</td>
+		</tr>
+	</tbody>
+</table>
+<p>The <kbd>transposeNaive</kbd> kernel achieves only a fraction of the effective bandwidth of the copy kernel. Because this kernel does very little other than copying, we would like to get closer to copy throughput. Let&rsquo;s look at how we can do that.</p>
+<h2>
+	Coalesced Transpose Via Shared Memory</h2>
+<p>The remedy for the poor transpose performance is to use shared memory to avoid the large strides through global memory. The following figure depicts how shared memory is used in the transpose.<img alt="" src="http://developer.nvidia.com/sites/default/files/akamai/cuda/images/parallel-forall/sharedTranspose.jpg" style="width: 700px; height: 280px;" /></p>
+<p>The following kernel performs this &ldquo;tiled&rdquo; transpose.</p>
+<pre class="prettyprint">
+__global__ void transposeCoalesced(float *odata, const float *idata)
+{
+  __shared__ float tile[TILE_DIM][TILE_DIM];
+
+  int x = blockIdx.x * TILE_DIM + threadIdx.x;
+  int y = blockIdx.y * TILE_DIM + threadIdx.y;
+  int width = gridDim.x * TILE_DIM;
+
+  for (int j = 0; j &lt; TILE_DIM; j += BLOCK_ROWS)
+     tile[threadIdx.y+j][threadIdx.x] = idata[(y+j)*width + x];
+
+  __syncthreads();
+
+  x = blockIdx.y * TILE_DIM + threadIdx.x;  // transpose block offset
+  y = blockIdx.x * TILE_DIM + threadIdx.y;
+
+  for (int j = 0; j &lt; TILE_DIM; j += BLOCK_ROWS)
+     odata[(y+j)*width + x] = tile[threadIdx.x][threadIdx.y + j];
+}</pre>
+<p>In the first do loop, a warp of threads reads contiguous data from <kbd>idata</kbd> into rows of the shared memory tile. After recalculating the array indices, a column of the shared memory tile is written to contiguous addresses in <kbd>odata</kbd>. Because threads write different data to <kbd>odata</kbd> than they read from <kbd>idata</kbd>, we must use a block-wise barrier synchronization <kbd>__syncthreads()</kbd>. This approach gives us a nice speed up, as shown in this updated effective bandwidth table.</p>
+<table align="center" border="0">
+	<tbody>
+		<tr>
+			<td>
+				&nbsp;</td>
+			<td align="center" colspan="2">
+				Effective Bandwidth (GB/s, ECC enabled)</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				Routine</td>
+			<td>
+				Tesla M2050</td>
+			<td>
+				Tesla K20c</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				copy</td>
+			<td>
+				105.2</td>
+			<td>
+				136.0</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeNaive</td>
+			<td>
+				18.8</td>
+			<td>
+				55.3</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeCoalesced</td>
+			<td>
+				51.3</td>
+			<td>
+				97.6</td>
+		</tr>
+	</tbody>
+</table>
+<p>The <kbd>transposeCoalesced</kbd> results are an improvement over the <kbd>transposeNaive</kbd> case, but they are still far from the performance of the <kbd>copy</kbd> kernel. We might guess that the cause of the performance gap is the overhead associated with using shared memory and the required synchronization barrier <kbd>__syncthreads()</kbd>. We can easily test this using the following copy kernel that uses shared memory.</p>
+<pre class="prettyprint">
+__global__ void copySharedMem(float *odata, const float *idata)
+{
+  __shared__ float tile[TILE_DIM * TILE_DIM];
+
+  int x = blockIdx.x * TILE_DIM + threadIdx.x;
+  int y = blockIdx.y * TILE_DIM + threadIdx.y;
+  int width = gridDim.x * TILE_DIM;
+
+  for (int j = 0; j &lt; TILE_DIM; j += BLOCK_ROWS)
+     tile[(threadIdx.y+j)*TILE_DIM + threadIdx.x] = idata[(y+j)*width + x];
+
+  __syncthreads();
+
+  for (int j = 0; j &lt; TILE_DIM; j += BLOCK_ROWS)
+     odata[(y+j)*width + x] = tile[(threadIdx.y+j)*TILE_DIM + threadIdx.x];          
+}</pre>
+<p>Note that the synchthreads() call is technically not needed in this case, because the operations for an element are performed by the same thread, but we include it here to mimic the transpose behavior. The second line of the table below shows that the problem is not the use of shared memory or the barrier synchronization.</p>
+<table align="center" border="0">
+	<tbody>
+		<tr>
+			<td>
+				&nbsp;</td>
+			<td align="center" colspan="2">
+				Effective Bandwidth (GB/s, ECC enabled)</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				Routine</td>
+			<td>
+				Tesla M2050</td>
+			<td>
+				Tesla K20c</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				copy</td>
+			<td>
+				105.2</td>
+			<td>
+				136.0</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				copySharedMem</td>
+			<td>
+				104.6</td>
+			<td>
+				152.3</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeNaive</td>
+			<td>
+				18.8</td>
+			<td>
+				55.3</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeCoalesced</td>
+			<td>
+				51.3</td>
+			<td>
+				97.6</td>
+		</tr>
+	</tbody>
+</table>
+<h2>
+	Shared Memory Bank Conflicts</h2>
+<p>For a shared memory tile of 32 &times; 32 elements, all elements in a column of data map to the same shared memory bank, resulting in a worst-case scenario for memory bank conflicts: reading a column of data results in a 32-way bank conflict. Luckily, the solution for this is simply to pad the width in the declaration of the shared memory tile, making the tile 33 elements wide rather than 32.</p>
+<pre class="prettyprint">
+__shared__ float tile[TILE_DIM][TILE_DIM+1];</pre>
+<p>Removing the bank conflicts in this way brings us to about 95% of our fastest copy throughput.</p>
+<table align="center" border="0">
+	<tbody>
+		<tr>
+			<td>
+				&nbsp;</td>
+			<td align="center" colspan="2">
+				Effective Bandwidth (GB/s, ECC enabled)</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				Routine</td>
+			<td>
+				Tesla M2050</td>
+			<td>
+				Tesla K20c</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				copy</td>
+			<td>
+				105.2</td>
+			<td>
+				136.0</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				copySharedMem</td>
+			<td>
+				104.6</td>
+			<td>
+				152.3</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeNaive</td>
+			<td>
+				18.8</td>
+			<td>
+				55.3</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeCoalesced</td>
+			<td>
+				51.3</td>
+			<td>
+				97.6</td>
+		</tr>
+		<tr align="center" valign="middle">
+			<td>
+				transposeNoBankConflicts</td>
+			<td>
+				99.5</td>
+			<td>
+				144.3</td>
+		</tr>
+	</tbody>
+</table>
+<p><span style="color: #000000; font-size: 15px; font-weight: bold;">Summary</span></p>
+<p>In this post we presented three kernels that represent various optimizations for a matrix transpose. The kernels show how to use shared memory to coalesce global memory access and how to pad arrays to avoid shared memory bank conflicts. Looking at the relative gains of our kernels, coalescing global memory accesses is by far the most critical aspect of achieving good performance, which is true of many applications. Because global memory coalescing is so important, we revisit it again in the next post when we look at a finite difference computation on a 3D mesh.</p>
+<p>∥&forall;</p>
+<div>
+	<hr />
+	<p>Parallel Forall is the NVIDIA Parallel Programming blog. If you enjoyed this post, subscribe to the&nbsp;<a href="https://developer.nvidia.com/blog/feed/2">Parallel Forall RSS feed</a>! You may contact us via the&nbsp;<a href="https://developer.nvidia.com/content/contact-parallel-forall">contact form</a>.</p>
+</div>
+</div>
+        <div class="product-body"></div>
+      </div>
+    
+      </div>
+  </div>
+			</div>
+							<div id='right' class='clear-block'>  <div class="block block-block" id="block-block-8">
+  <h2 class="block-title">NVIDIA Developer Programs</h2>
+  <div class="block-content clear-block">
+    <p>Get exclusive access to the latest software, report bugs and receive notifications for special events.</p>
+    <a class="button" href="/registered-developer-programs">Learn more and Register</a>  </div>
+</div>  <div class="block block-nvidia_blog" id="block-nvidia_blog-0">
+  <div class="block-content clear-block">
+    <a href="/blog?term=2"><img src="/sites/default/files/category_pictures/blog_category_2.jpg" alt="CUDA Zone" title="C, C++, Fortran parallel programming - if it has to do with GPU Computing, you&#039;ll find it here!" width="196" height="128" /></a>  </div>
+</div>  <div class="block block-views" id="block-views--exp-devzone_blogs-page_2">
+  <div class="block-content clear-block">
+    <form action="/blog-search"  accept-charset="UTF-8" method="get" id="views-exposed-form-devzone-blogs-page-2">
+<div><div class="views-exposed-form">
+  <div class="views-exposed-widgets clear-block">
+          <div class="views-exposed-widget views-widget-filter-body">
+                        <div class="views-widget">
+          <div  class="form-item" id="edit-body-wrapper">
+    <input type="text" maxlength="128" name="body" id="edit-body" size="30" value="Search Blogs" class="form-text" />  </div>
+        </div>
+      </div>
+        <div class="views-exposed-widget views-submit-button">
+      <span class="button"><span><input type="submit" id="edit-submit-devzone-blogs" value="Go"  class="form-submit" />
+</span></span>    </div>
+  </div>
+</div>
+
+</div></form>
+  </div>
+</div>  <div class="block block-views" id="block-views-devzone_blogs-block_3">
+  <h2 class="block-title">Recommended Reading</h2>
+  <div class="block-content clear-block">
+    <div class="view view-devzone-blogs view-id-devzone_blogs view-display-id-block_3 view-dom-id-1">
+
+  
+  
+  
+  
+  
+      <div class="view-content">
+        <div class="views-row views-row-1 views-row-odd views-row-first">
+      
+  <span class="views-field-field-blogroll-url-url">
+                <span class="field-content"><a href="http://developer.nvidia.com/about-parallel-forall" target="_blank" rel="nofollow">About Parallel Forall</a></span>
+  </span>
+  </div>
+  <div class="views-row views-row-2 views-row-even">
+      
+  <span class="views-field-field-blogroll-url-url">
+                <span class="field-content"><a href="http://developer.nvidia.com/content/contact-parallel-forall" target="_blank" rel="nofollow">Contact Parallel Forall</a></span>
+  </span>
+  </div>
+  <div class="views-row views-row-3 views-row-odd views-row-last">
+      
+  <span class="views-field-field-blogroll-url-url">
+                <span class="field-content"><a href="http://developer.nvidia.com/blog/feed/2" target="_blank" rel="nofollow">Parallel Forall Blog</a></span>
+  </span>
+  </div>
+    </div>
+  
+  
+  
+  
+  
+</div>   </div>
+</div>  <div class="block block-views" id="block-views-SlideShow-block_2">
+  <h2 class="block-title">Featured Articles</h2>
+  <div class="block-content clear-block">
+    <div class="view view-SlideShow view-id-SlideShow view-display-id-block_2 view-dom-id-1">
+    
+  
+  
+      <div class="view-content">
+      
+
+
+<div id="views_slideshow_singleframe_main_SlideShow-block_2" class="views_slideshow_singleframe_main views_slideshow_main"><div id="views_slideshow_singleframe_teaser_section_SlideShow-block_2" class="views_slideshow_singleframe_teaser_section"><div class="views_slideshow_singleframe_slide views_slideshow_slide views-row-1 views-row-odd" id="views_slideshow_singleframe_div_SlideShow-block_2_0"><div class="views-row views-row-0 views-row-first views-row-odd">
+  
+  <div class="views-field-field-ext-reference-url">
+                <span class="field-content"></span>
+  </div>
+  
+  <div class="views-field-field-mini-slide-fid">
+                <span class="field-content"><a href="/content/nsight-visual-studio-edition-3_1-final-now-available-visual-studio-2012-direct3d-111-and-cuda"><img src="https://developer.nvidia.com/sites/default/files/imagecache/minislideshow/akamai/tools/images/NSight_VSE_340x190.jpg" alt="" title="" width="220" height="125" class="imagecache imagecache-minislideshow imagecache-default imagecache-minislideshow_default"/></a></span>
+  </div>
+  
+  <div class="views-field-title">
+                <span class="field-content"><a href="/content/nsight-visual-studio-edition-3_1-final-now-available-visual-studio-2012-direct3d-111-and-cuda">Nsight Visual Studio Edition 3.1 Final Now...</a></span>
+  </div>
+
+</div>
+</div>
+<div class="views_slideshow_singleframe_slide views_slideshow_slide views-row-2 views_slideshow_singleframe_hidden views-row-even" id="views_slideshow_singleframe_div_SlideShow-block_2_1"><div class="views-row views-row-0 views-row-first views-row-odd">
+  
+  <div class="views-field-field-ext-reference-url">
+                <span class="field-content"></span>
+  </div>
+  
+  <div class="views-field-field-mini-slide-fid">
+                <span class="field-content"><a href="/udacity-cs344-intro-parallel-programming"><img src="https://developer.nvidia.com/sites/default/files/imagecache/minislideshow/akamai/cuda/images/banners/udacity-mini-banner-340x190b.jpg" alt="" title="" width="220" height="125" class="imagecache imagecache-minislideshow imagecache-default imagecache-minislideshow_default"/></a></span>
+  </div>
+  
+  <div class="views-field-title">
+                <span class="field-content"><a href="/udacity-cs344-intro-parallel-programming">Udacity CS344: Intro to Parallel Programming</a></span>
+  </div>
+
+</div>
+</div>
+<div class="views_slideshow_singleframe_slide views_slideshow_slide views-row-3 views_slideshow_singleframe_hidden views-row-odd" id="views_slideshow_singleframe_div_SlideShow-block_2_2"><div class="views-row views-row-0 views-row-first views-row-odd">
+  
+  <div class="views-field-field-ext-reference-url">
+                <span class="field-content"></span>
+  </div>
+  
+  <div class="views-field-field-mini-slide-fid">
+                <span class="field-content"><a href="/nsight-visual-studio-edition-3_0-new-features"><img src="https://developer.nvidia.com/sites/default/files/imagecache/minislideshow/akamai/tools/images/nsight-visual-studio/Nsight3_0ReleaseBanner_220x125_0.jpg" alt="" title="" width="220" height="125" class="imagecache imagecache-minislideshow imagecache-default imagecache-minislideshow_default"/></a></span>
+  </div>
+  
+  <div class="views-field-title">
+                <span class="field-content"><a href="/nsight-visual-studio-edition-3_0-new-features">Nsight Visual Studio Edition 3.0 New Features</a></span>
+  </div>
+
+</div>
+</div>
+</div>
+</div>
+  <div class="views-slideshow-controls-bottom clear-block">
+    <div class="views_slideshow_singleframe_controls views_slideshow_controls" id="views_slideshow_singleframe_controls_SlideShow-block_2"><a href="# " class="views_slideshow_singleframe_previous views_slideshow_previous" id="views_slideshow_singleframe_prev_SlideShow-block_2">Previous</a><a href="# " class="views_slideshow_singleframe_pause views_slideshow_pause" id="views_slideshow_singleframe_playpause_SlideShow-block_2">Pause</a><a href="# " class="views_slideshow_singleframe_next views_slideshow_next" id="views_slideshow_singleframe_next_SlideShow-block_2">Next</a></div>
+          </div>
+    </div>
+  
+  
+  
+  
+  
+  
+</div>   </div>
+</div>  <div class="block block-views" id="block-views-devzone_blogs-block_5">
+  <h2 class="block-title">Tag Index</h2>
+  <div class="block-content clear-block">
+    <div class="view view-devzone-blogs view-id-devzone_blogs view-display-id-block_5 view-dom-id-3">
+
+  
+  
+  
+  
+  
+      <div class="view-content">
+        <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/321?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">accelerometer</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4843?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Algorithms</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/496?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Android</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4867?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">ANR</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4868?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">ARM</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4842?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">ArrayFire</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/436?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Audi</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4786?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Automotive &amp; Embedded </a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4905?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Blog</a>
+          (20)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4917?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Blog</a>
+          (23)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4852?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Cluster</a>
+          (4)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4860?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">competition</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4864?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Compilation</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4845?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Concurrency</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4857?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Copperhead</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/166?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA</a>
+          (23)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4631?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA 4.1</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4933?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA 5.5</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4501?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA C</a>
+          (15)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/456?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA Fortran</a>
+          (10)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4873?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA Pro Tip</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/466?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA Profiler</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4336?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA Spotlight</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/2?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDA Zone</a>
+          (81)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4874?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">CUDACasts</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4166?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Debug</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4372?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Debugger</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4521?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Debugging</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4915?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Develop 4 Shield</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/276?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">development kit</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/3131?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">DirectX</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4811?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Eclipse</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4741?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Events</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4946?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">FFT</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4851?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Finite Difference</a>
+          (4)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4676?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Floating Point</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/1?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Game &amp; Graphics Development</a>
+          (35)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4977?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Games and Graphics</a>
+          (8)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4948?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">GeForce Developer Stories</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/421?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">getting started</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4201?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">google io</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/181?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">GTC</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4859?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Hardware</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4870?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Interview</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4862?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Kepler</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/431?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Lamborghini</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4836?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Libraries</a>
+          (4)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/676?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">memory</a>
+          (6)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/3?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Mobile Development</a>
+          (27)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4871?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Monte Carlo</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4756?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">MPI</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4853?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Multi-GPU</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4866?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">native_app_glue</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/296?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">NDK</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4701?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">NPP</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4776?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Nsight</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4949?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">NSight Eclipse Edition</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4938?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Nsight Tegra</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4903?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">NSIGHT Visual Studio Edition</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4953?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">NumbaPro</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4681?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Numerics</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4626?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">NVIDIA Parallel Nsight</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4944?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">nvidia-smi</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4846?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Occupancy</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4621?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">OpenACC</a>
+          (6)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/3356?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">OpenGL</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/311?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">OpenGL ES</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4880?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Parallel Forall</a>
+          (69)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/176?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Parallel Nsight</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/231?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Parallel Programming</a>
+          (5)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4831?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">PerfHUD ES</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/3546?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Performance</a>
+          (4)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4850?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Portability</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4869?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Porting</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4847?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Pro Tip</a>
+          (5)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Professional Graphics</a>
+          (6)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4526?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Profiling</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4841?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Programming Languages</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4858?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Python</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4872?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Robotics</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4937?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Shape Sensing</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4848?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Shared Memory</a>
+          (6)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4854?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Shield</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4844?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Streams</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/316?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">tablet</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4865?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">TADP</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/221?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Technologies</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/51?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">tegra</a>
+          (5)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4914?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Tegra Android Developer Pack</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4940?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Tegra Android Development Pack</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4971?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Tegra Developer Stories</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4939?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Tegra Profiler</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4397?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Tegra Zone</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4849?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Textures</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4821?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Thrust</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/50?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Tools</a>
+          (10)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/256?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">tools</a>
+          (2)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4861?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Toradex</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4161?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Visual Studio</a>
+          (3)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4945?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Windows 8</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4211?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">xoom</a>
+          (1)
+      </span>  <span class="views-summary views-summary-unformatted">        <a href="/blog/tags/4392?display[%24ne]=defaultnvidia-texture-tools-adobe-photoshopcontent%2Fopenacc-directives-gpus">Zone In</a>
+          (1)
+      </span>    </div>
+  
+  
+  
+  
+  
+</div>   </div>
+</div>  <div class="block block-views" id="block-views--exp-devzone_blogs-page_3">
+  <div class="block-content clear-block">
+    <form action="/blog-archives"  accept-charset="UTF-8" method="get" id="views-exposed-form-devzone-blogs-page-3">
+<div><div class="views-exposed-form">
+  <div class="views-exposed-widgets clear-block">
+          <div class="views-exposed-widget views-widget-filter-date_filter">
+                        <div class="views-widget">
+          <div class="date-views-filter-wrapper">
+<div class="container-inline-date date-clear">
+</div>
+<div class="date-clear form-item"><div class="description">
+  <div class="container-inline-date date-clear-block"><div  class="form-item" id="edit-date-filter-value-wrapper">
+    <div class="date-year"><div  class="form-item" id="edit-date-filter-value-year-wrapper">
+    <select name="date_filter[value][year]" class="form-select  date-year" id="edit-date-filter-value-year" ><option value="">-Year</option><option value="2010">2010</option><option value="2011">2011</option><option value="2012">2012</option><option value="2013">2013</option></select>  </div>
+</div><div class="date-month"><div  class="form-item" id="edit-date-filter-value-month-wrapper">
+    <select name="date_filter[value][month]" class="form-select  date-month" id="edit-date-filter-value-month" ><option value="">-Month</option><option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option></select>  </div>
+</div>  </div>
+</div></div>
+</div>
+</div>        </div>
+      </div>
+        <div class="views-exposed-widget views-submit-button">
+      <span class="button"><span><input type="submit" id="edit-submit-devzone-blogs" value="Go"  class="form-submit" />
+</span></span>    </div>
+  </div>
+</div>
+
+</div></form>
+  </div>
+</div>  <div class="block block-views" id="block-views-devzone_blogs-block_4">
+  <h2 class="block-title">Developer Blogs</h2>
+  <div class="block-content clear-block">
+    <div class="view view-devzone-blogs view-id-devzone_blogs view-display-id-block_4 view-dom-id-4">
+
+  
+  
+  
+  
+  
+      <div class="view-content">
+        <div class="views-row views-row-1 views-row-odd views-row-first views-row-last">
+      
+  <span class="views-field-field-blogroll-url-url">
+                <span class="field-content"><a href="http://developer.nvidia.com/blog/feed/2" target="_blank" rel="nofollow">Parallel Forall Blog</a></span>
+  </span>
+  </div>
+    </div>
+  
+  
+  
+  
+  
+</div>   </div>
+</div></div>
+					</div>
+	</div>
+
+	<div id="footer">
+		<div class='limiter clear-block'>
+			<div class="block block-menu" id="block-menu-menu-footer-menu">
+				<div class="block-content clear-block">
+					<ul class="menu"><li class="leaf first"><a href="http://www.nvidia.com/page/companyinfo.html" title="">About</a></li>
+						<li class="leaf last"><a href="/contact" title="">Contact</a></li>
+					</ul>
+				</div>
+			</div>
+
+			<div class="block block-menu" id="block-menu-menu-footer-links">
+
+				<div class="block-content clear-block">
+					<ul class="menu">
+						<li class="leaf first">Copyright &copy; 2013 NVIDIA Corporation</li>
+						<li class="leaf"><a href="http://www.nvidia.com/object/legal_info.html" title="">Legal Information</a></li>
+						<li class="leaf"><a href="http://www.nvidia.com/object/privacy_policy.html" title="">Privacy Policy</a></li>
+						<li class="leaf last"><a href="/code-of-conduct" title="Code of Conduct">Code of Conduct</a></li>
+					</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+	<script type="text/javascript" src="/sites/default/files/js/js_cf096d01e12a9c3fd06fd083cebf3afa.js"></script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+jQuery.extend(Drupal.settings, { "basePath": "/", "googleanalytics": { "trackOutbound": 1, "trackMailto": 1, "trackDownload": 1, "trackDownloadExtensions": "7z|aac|arc|arj|asf|asx|avi|bin|csv|doc|exe|flv|gif|gz|gzip|hqx|jar|jpe?g|js|mp(2|3|4|e?g)|mov(ie)?|msi|msp|pdf|phps|png|ppt|qtm?|ra(m|r)?|sea|sit|tar|tgz|torrent|txt|wav|wma|wmv|wpd|xls|xml|z|zip" }, "googleAnalyticsReportsAjaxUrl": "/google-analytics-reports/ajax", "nice_menus_options": { "delay": "800", "speed": "fast" }, "prettify": { "linenums": false, "match": "#content", "nocode": "no-code", "custom": [  ], "markup": { "code": true, "pre": true, "precode": false } }, "thickbox": { "close": "Close", "next": "Next \x3e", "prev": "\x3c Prev", "esc_key": "or Esc Key", "next_close": "Next / Close on last", "image_count": "Image !current of !total" }, "nvidia_quick_survey_settings": { "surveyDelay": 500 }, "viewsSlideshowSingleFrame": { "#views_slideshow_singleframe_main_SlideShow-block_2": { "num_divs": 3, "id_prefix": "#views_slideshow_singleframe_main_", "div_prefix": "#views_slideshow_singleframe_div_", "vss_id": "SlideShow-block_2", "timeout": 5000, "sort": 1, "effect": "fade", "speed": 700, "start_paused": 0, "delay": 0, "fixed_height": 1, "random": 0, "pause": 1, "pause_on_click": 1, "pause_when_hidden": 0, "pause_when_hidden_type": "full", "amount_allowed_visible": "", "remember_slide": 0, "remember_slide_days": 1, "controls": 2, "items_per_slide": 1, "pager": 0, "pager_type": "Numbered", "pager_hover": 2, "pager_click_to_page": 0, "image_count": 0, "nowrap": 0, "sync": 2, "advanced": "", "ie": { "cleartype": "true", "cleartypenobg": "false" } } } });
+//--><!]]>
+</script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+window.google_analytics_uacct = "UA-1273456-46";
+//--><!]]>
+</script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+
+//--><!]]>
+</script>
+<link type="text/css" rel="stylesheet" media="all" href="/css/get/596716" />
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+
+//--><!]]>
+</script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+$(document).ready(function() {
+$(".filefield-source-upload").remove();
+$("#edit-field-file-download-0-imce-source").trigger('click');
+$("#edit-field-cover-book-0-imce-source").trigger('click');
+$("#edit-field-rdp-file-0-imce-source").trigger('click');
+$("#edit-field-product-thumbnail-0-imce-source").trigger('click');
+$("#edit-field-file-download-0-upload-source").click(function () { 
+      alert('This option is no longer supported. Please upload your file via the asset management system');
+$("#edit-field-file-download-0-imce-source").trigger('click');
+    });
+$("#edit-field-thumbnail-0-imce-source").trigger('click');
+$("#edit-field-thumbnail-0-upload-source").click(function () { 
+      alert('This option is no longer supported. Please upload your file via the asset management system');
+$("#edit-field-thumbnail-0-imce-source").trigger('click');
+    });
+});
+
+//--><!]]>
+</script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+$(document).ready(function() {
+$(".filefield-source-upload").remove();
+$("#edit-field-file-download-0-imce-source").trigger('click');
+$("#edit-field-cover-book-0-imce-source").trigger('click');
+$("#edit-field-rdp-file-0-imce-source").trigger('click');
+$("#edit-field-product-thumbnail-0-imce-source").trigger('click');
+$("#edit-field-file-download-0-upload-source").click(function () { 
+      alert('This option is no longer supported. Please upload your file via the asset management system');
+$("#edit-field-file-download-0-imce-source").trigger('click');
+    });
+$("#edit-field-thumbnail-0-imce-source").trigger('click');
+$("#edit-field-thumbnail-0-upload-source").click(function () { 
+      alert('This option is no longer supported. Please upload your file via the asset management system');
+$("#edit-field-thumbnail-0-imce-source").trigger('click');
+    });
+});
+
+//--><!]]>
+</script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+$(document).ready(function() {
+$(".filefield-source-upload").remove();
+$("#edit-field-file-download-0-imce-source").trigger('click');
+$("#edit-field-cover-book-0-imce-source").trigger('click');
+$("#edit-field-rdp-file-0-imce-source").trigger('click');
+$("#edit-field-product-thumbnail-0-imce-source").trigger('click');
+$("#edit-field-file-download-0-upload-source").click(function () { 
+      alert('This option is no longer supported. Please upload your file via the asset management system');
+$("#edit-field-file-download-0-imce-source").trigger('click');
+    });
+$("#edit-field-thumbnail-0-imce-source").trigger('click');
+$("#edit-field-thumbnail-0-upload-source").click(function () { 
+      alert('This option is no longer supported. Please upload your file via the asset management system');
+$("#edit-field-thumbnail-0-imce-source").trigger('click');
+    });
+});
+
+//--><!]]>
+</script>
+
+	<!-- SiteCatalyst code version: H.17 Copyright 1997-2009 Omniture, Inc. More info available at http://www.omniture.com -->
+<script type="text/javascript" language="JavaScript" src="/sites/all/libraries/s_code_us_dev_aut1.js"></script>
+<script type="text/javascript" language="JavaScript"><!--
+/************* DO NOT ALTER ANYTHING BELOW THIS LINE ! **************/
+var s_code=s.t();if(s_code)document.write(s_code)//--></script>
+<script language="JavaScript" type="text/javascript"><!--
+if(navigator.appVersion.indexOf('MSIE')>=0)document.write(unescape('%3C')+'\!-'+'-')
+//--></script><noscript><a href="http://www.omniture.com" title="Web Analytics"><img src="https://omniture.nvidia.com/b/ss/nvidiausdev/1/H.17--NS/0/8708898"
+height="1" width="1" border="0" alt="" /></a></noscript><!--/DO NOT REMOVE/-->
+<!-- End SiteCatalyst code version: H.17 -->
+<script type="text/javascript" src="/sites/default/files/js/js_6919adf8f501886b09fd7eee56c67d2c.js"></script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+var _gaq = _gaq || [];_gaq.push(["_setAccount", "UA-1273456-46"]);_gaq.push(['_setCustomVar', 1, "Role by visit", "anonymous user", 1]);_gaq.push(['_setCustomVar', 2, "Role by page", "anonymous user", 3]);_gaq.push(["_trackPageview"]);(function() {var ga = document.createElement("script");ga.type = "text/javascript";ga.async = true;ga.src = "/sites/default/files/googleanalytics/ga.js?A";var s = document.getElementsByTagName("script")[0];s.parentNode.insertBefore(ga, s);})();
+//--><!]]>
+</script>
+</body>
+</html>
