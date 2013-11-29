@@ -1,0 +1,35 @@
+// CoCUDAServer.idl : IDL source for CoCUDAServer
+//
+
+// This file will be processed by the MIDL tool to
+// produce the type library (CoCUDAServer.tlb) and marshalling code.
+
+import "oaidl.idl";
+import "ocidl.idl";
+
+[
+	object,
+	uuid(35724BDB-B494-47C0-93B5-5B12ECC7FB39),
+	dual,
+	nonextensible,
+	pointer_default(unique)
+]
+interface ICoCUDA : IDispatch{
+	[id(1), helpstring("checking")] HRESULT Greeting(void);
+};
+[
+	uuid(AAE0E910-5D32-4AC8-9A5D-590B4F437594),
+	version(1.0),
+]
+library CoCUDAServerLib
+{
+	importlib("stdole2.tlb");
+	[
+		uuid(D5928364-F0C4-4CDE-A074-F60C72DF5BDC)		
+	]
+	coclass CoCUDA
+	{
+		[default] interface ICoCUDA;
+	};
+};
+

@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CoCUDAServer", "CoCUDAServer\CoCUDAServer.vcxproj", "{7907EBF0-28A8-4C2A-B0C1-DEE6CFDD1905}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CoCUDAServerPS", "CoCUDAServer\CoCUDAServerPS.vcxproj", "{04CAAC6E-58D3-43AA-B581-305EA9951EBC}"
+	ProjectSection(ProjectDependencies) = postProject
+		{7907EBF0-28A8-4C2A-B0C1-DEE6CFDD1905} = {7907EBF0-28A8-4C2A-B0C1-DEE6CFDD1905}
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7907EBF0-28A8-4C2A-B0C1-DEE6CFDD1905}.Debug|Win32.ActiveCfg = Debug|Win32
+		{7907EBF0-28A8-4C2A-B0C1-DEE6CFDD1905}.Debug|Win32.Build.0 = Debug|Win32
+		{7907EBF0-28A8-4C2A-B0C1-DEE6CFDD1905}.Release|Win32.ActiveCfg = Release|Win32
+		{7907EBF0-28A8-4C2A-B0C1-DEE6CFDD1905}.Release|Win32.Build.0 = Release|Win32
+		{04CAAC6E-58D3-43AA-B581-305EA9951EBC}.Debug|Win32.ActiveCfg = Debug|Win32
+		{04CAAC6E-58D3-43AA-B581-305EA9951EBC}.Release|Win32.ActiveCfg = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

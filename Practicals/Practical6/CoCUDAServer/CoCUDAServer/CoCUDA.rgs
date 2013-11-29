@@ -1,0 +1,26 @@
+HKCR
+{
+	CoCUDAServer.CoCUDA.1 = s 'CoCUDA Class'
+	{
+		CLSID = s '{D5928364-F0C4-4CDE-A074-F60C72DF5BDC}'
+	}
+	CoCUDAServer.CoCUDA = s 'CoCUDA Class'
+	{		
+		CurVer = s 'CoCUDAServer.CoCUDA.1'
+	}
+	NoRemove CLSID
+	{
+		ForceRemove {D5928364-F0C4-4CDE-A074-F60C72DF5BDC} = s 'CoCUDA Class'
+		{
+			ProgID = s 'CoCUDAServer.CoCUDA.1'
+			VersionIndependentProgID = s 'CoCUDAServer.CoCUDA'
+			ForceRemove Programmable
+			InprocServer32 = s '%MODULE%'
+			{
+				val ThreadingModel = s 'Apartment'
+			}
+			TypeLib = s '{AAE0E910-5D32-4AC8-9A5D-590B4F437594}'
+			Version = s '1.0'
+		}
+	}
+}
